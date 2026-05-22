@@ -1,11 +1,12 @@
 import dotenv from 'dotenv';
-dotenv.config(); // Move this to the absolute top line of the file
+dotenv.config();
 
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import path from 'path';
 import { betterAuth } from "better-auth";
+import { mongodbAdapter } from "better-auth/adapters/mongodb";
 
 const app = express();
 app.enable('trust proxy');
@@ -32,10 +33,7 @@ mongoose.connect(MONGODB_URI, {
 });
 
 export const auth = betterAuth({
-  database: {
-    provider: "mongodb",
-    url: MONGODB_URI
-  },
+  database: mongodbAdapter(mongoose.connection), 
   emailAndPassword: {
     enabled: true
   },
