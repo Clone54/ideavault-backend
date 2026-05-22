@@ -4,19 +4,18 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import { betterAuth } from "better-auth";
-import { mongodbAdapter } from "@better-auth/mongodb-adapter";
+import { mongodbAdapter } from "better-auth/adapters/mongodb";
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Dynamic frontend URL fallback for development vs production
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 app.use(cors({
   origin: FRONTEND_URL,
-  credentials: true // Crucial for Better Auth to accept session cookies/headers cross-origin
+  credentials: true 
 }));
 app.use(express.json());
 
@@ -30,7 +29,7 @@ mongoose.connect(MONGODB_URI, {
   console.error('Failed to connect to MongoDB:', err.message);
 });
 
-// 1. Initialize Better Auth using your active Mongoose connection instance
+
 export const auth = betterAuth({
   database: mongodbAdapter(mongoose.connection.db), 
   emailAndPassword: {
@@ -44,22 +43,22 @@ export const auth = betterAuth({
   }
 });
 
-// 2. Direct all incoming authentication routing to Better Auth's internal API handler
+
 app.all("/api/auth/*", (req, res) => {
   auth.handler(req);
 });
 
-// 3. New Better Auth Session Verification Middleware
+
 const verifyToken = async (req, res, next) => {
   try {
-    // Better Auth extracts tokens automatically from cookies or headers
+    
     const session = await auth.api.getSession({ headers: req.headers });
     
     if (!session) {
       return res.status(401).json({ message: 'Unauthorized access' });
     }
     
-    // Standardize your custom req.user properties using the active session profile
+    
     req.user = {
       email: session.user.email,
       name: session.user.name,
@@ -72,7 +71,7 @@ const verifyToken = async (req, res, next) => {
   }
 };
 
-// Database connectivity check middleware
+
 app.use('/api', (req, res, next) => {
   if (req.path === '/health' || req.path.startsWith('/auth')) return next();
   
@@ -84,7 +83,7 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-// --- Mongoose Schemas ---
+
 const CommentSchema = new mongoose.Schema({
   userId: { type: String, required: true },
   userName: { type: String, required: true },
@@ -115,7 +114,7 @@ const IdeaSchema = new mongoose.Schema({
 
 const Idea = mongoose.model('Idea', IdeaSchema);
 
-// --- REST API Endpoints ---
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'IdeaVault API is running with Better Auth.' });
 });
@@ -299,7 +298,7 @@ async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';
   const fs = await import('fs');
   
-  // Static deployment serving structure
+  
   if (isProduction) {
     app.use(express.static(path.join(process.cwd(), 'dist')));
     app.get('*', (req, res) => {
