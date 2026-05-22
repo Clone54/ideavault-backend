@@ -7,6 +7,7 @@
     "dev": "node server.js"
   },
   "dependencies": {
+    "@better-auth/mongodb-adapter": "^1.1.18",
     "@better-auth/infra": "^0.2.8",
     "@google/genai": "^1.29.0",
     "axios": "^1.16.1",
