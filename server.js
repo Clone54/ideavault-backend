@@ -270,12 +270,14 @@ async function startServer() {
     await mongoose.connect(MONGODB_URI, { serverSelectionTimeoutMS: 5000 });
     console.log('Connected to MongoDB via Mongoose cleanly');
     
-    // Explicitly seed the active collection driver reference straight into the adapter wrapper
     authInstance = betterAuth({
       database: mongodbAdapter(mongoose.connection.db),
       emailAndPassword: { enabled: true },
       trustedOrigins: [FRONTEND_URL, 'http://localhost:5173'],
-      advanced: { useSecureCookies: isProduction }
+      advanced: { 
+        useSecureCookies: isProduction,
+        disableSyncOnStart: true
+      }
     });
     console.log('Better Auth successfully initialized with database client adapter');
   } catch (err) {
