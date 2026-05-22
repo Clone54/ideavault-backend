@@ -24,13 +24,13 @@ app.use(express.json());
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/ideavault';
 
-let authInstance = null;
+export let auth = null;
 
 app.all("/api/auth/*", (req, res) => {
-  if (!authInstance) {
+  if (!auth) {
     return res.status(503).json({ error: "Authentication service initializing. Please retry..." });
   }
-  authInstance.handler(req);
+  auth.handler(req);
 });
 
 app.use('/api', (req, res, next) => {
@@ -47,10 +47,10 @@ app.use('/api', (req, res, next) => {
 
 const verifyToken = async (req, res, next) => {
   try {
-    if (!authInstance) {
+    if (!auth) {
       return res.status(503).json({ error: "Auth engine offline" });
     }
-    const session = await authInstance.api.getSession({ headers: req.headers });
+    const session = await auth.api.getSession({ headers: req.headers });
     if (!session) {
       return res.status(401).json({ message: 'Unauthorized access' });
     }
@@ -270,13 +270,12 @@ async function startServer() {
     await mongoose.connect(MONGODB_URI, { serverSelectionTimeoutMS: 5000 });
     console.log('Connected to MongoDB via Mongoose cleanly');
     
-    authInstance = betterAuth({
+    auth = betterAuth({
       database: mongodbAdapter(mongoose.connection.db),
       emailAndPassword: { enabled: true },
       trustedOrigins: [FRONTEND_URL, 'http://localhost:5173'],
       advanced: { 
-        useSecureCookies: isProduction,
-        disableSyncOnStart: true
+        useSecureCookies: isProduction
       }
     });
     console.log('Better Auth successfully initialized with database client adapter');
