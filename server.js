@@ -9,14 +9,14 @@ import { mongodbAdapter } from "better-auth/adapters/mongodb";
 dotenv.config();
 
 const app = express();
-app.enable('trust proxy'); 
+app.enable('trust proxy');
 const PORT = process.env.PORT || 3000;
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 app.use(cors({
   origin: FRONTEND_URL, 
-  credentials: true, 
+  credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Cookie']
 }));
@@ -24,70 +24,53 @@ app.use(express.json());
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/ideavault';
 
-
-let authInstance = null;
-
 mongoose.connect(MONGODB_URI, {
   serverSelectionTimeoutMS: 5000,
 }).then(() => {
-  console.log('Connected to MongoDB via Mongoose');
-  
-  
-  authInstance = betterAuth({
-    database: mongodbAdapter(mongoose.connection.db), 
-    emailAndPassword: {
-      enabled: true
-    },
-    trustedOrigins: [
-      FRONTEND_URL,
-      'http://localhost:5173'
-    ],
-    advanced: {
-      useSecureCookies: process.env.NODE_ENV === "production"
-    }
-  });
+  console.log('Connected to MongoDB via Mongoose cleanly');
 }).catch(err => {
-  console.error('Failed to connect to MongoDB:', err.message);
+  console.error('Failed to establish connection to MongoDB database:', err.message);
 });
 
+export const auth = betterAuth({
+  database: mongodbAdapter(() => mongoose.connection.db), 
+  emailAndPassword: {
+    enabled: true
+  },
+  trustedOrigins: [
+    FRONTEND_URL,
+    'http://localhost:5173'
+  ],
+  advanced: {
+    useSecureCookies: process.env.NODE_ENV === "production"
+  }
+});
 
 app.all("/api/auth/*", (req, res) => {
-  if (!authInstance) {
-    return res.status(503).json({ error: "Authentication system is initializing, please try again..." });
-  }
-  authInstance.handler(req);
+  auth.handler(req);
 });
 
-
 app.use('/api', (req, res, next) => {
-  
-  if (req.path.startsWith('/auth') || req.path === '/health') {
+  if (req.path.startsWith('/auth') || req.path === '/health' || req.path === '/config') {
     return next();
   }
   
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ 
-      error: 'Database not connected. System initialization is currently pending.' 
+      error: 'Database connection is still spawning. Please refresh in a brief moment.' 
     });
   }
   next();
 });
 
-
 const verifyToken = async (req, res, next) => {
   try {
-    if (!authInstance) {
-      return res.status(503).json({ error: "Authentication engine is currently offline." });
-    }
-
-    
-    const session = await authInstance.api.getSession({ headers: req.headers });
+    const session = await auth.api.getSession({ headers: req.headers });
     
     if (!session) {
       return res.status(401).json({ message: 'Unauthorized access' });
     }
     
-   
     req.user = {
       email: session.user.email,
       name: session.user.name,
@@ -95,8 +78,8 @@ const verifyToken = async (req, res, next) => {
     };
     next();
   } catch (error) {
-    console.error("Auth token runtime error:", error);
-    res.status(500).json({ error: "Internal authentication error" });
+    console.error("Auth middleware tracking token error:", error);
+    res.status(500).json({ error: "Internal authentication configuration conflict" });
   }
 };
 
@@ -131,37 +114,30 @@ const IdeaSchema = new mongoose.Schema({
 const Idea = mongoose.model('Idea', IdeaSchema);
 
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'IdeaVault API is running with Better Auth.' });
+  res.json({ status: 'ok', message: 'IdeaVault API is running cleanly.' });
 });
 
 app.get('/api/config', (req, res) => {
   res.json({
     hasExternalDb: !!process.env.MONGODB_URI,
-    message: process.env.MONGODB_URI ? 'Connected to External DB.' : 'Warning: Using local fallback database.'
+    message: process.env.MONGODB_URI ? 'Connected to External Database.' : 'Warning: Using default engine.'
   });
 });
 
 app.get('/api/ideas', async (req, res) => {
   const { search, category, limit } = req.query;
   const filter = {};
-  if (search) {
-    filter.title = { $regex: search, $options: 'i' };
-  }
-  if (category && category !== 'All' && category !== '') {
-    filter.category = category;
-  }
+  if (search) filter.title = { $regex: search, $options: 'i' };
+  if (category && category !== 'All' && category !== '') filter.category = category;
   
   let query = Idea.find(filter).sort({ createdAt: -1 });
-  if (limit) {
-    query = query.limit(Number(limit));
-  }
+  if (limit) query = query.limit(Number(limit));
   
   try {
     const ideas = await query;
     res.json(ideas);
   } catch (error) {
-    console.error('Error fetching ideas:', error);
-    res.status(500).json({ error: 'Failed to fetch ideas' });
+    res.status(500).json({ error: 'Failed to fetch ideas matching array constraints' });
   }
 });
 
@@ -170,8 +146,7 @@ app.get('/api/ideas/trending', async (req, res) => {
     const ideas = await Idea.find().sort({ interactionCount: -1, createdAt: -1 }).limit(6);
     res.json(ideas);
   } catch (error) {
-    console.error('Error fetching trending:', error);
-    res.status(500).json({ error: 'Failed to fetch trending ideas' });
+    res.status(500).json({ error: 'Failed to safely render dataset' });
   }
 });
 
@@ -181,7 +156,6 @@ app.get('/api/ideas/:id', async (req, res) => {
     if (!idea) return res.status(404).json({ error: 'Idea not found' });
     res.json(idea);
   } catch (error) {
-    console.error('Error fetching idea by id:', error);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -197,8 +171,7 @@ app.post('/api/ideas', verifyToken, async (req, res) => {
     await newIdea.save();
     res.status(201).json(newIdea);
   } catch (error) {
-    console.error('Error adding idea:', error);
-    res.status(500).json({ error: 'Failed to add idea', details: error.message });
+    res.status(500).json({ error: 'Failed to record custom item profile' });
   }
 });
 
@@ -291,8 +264,7 @@ app.get('/api/users/:email/ideas', verifyToken, async (req, res) => {
     const ideas = await Idea.find({ creatorEmail: req.params.email }).sort({ createdAt: -1 });
     res.json(ideas);
   } catch (error) {
-    console.error('Error user ideas:', error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: 'Server error parsing index' });
   }
 });
 
@@ -304,8 +276,7 @@ app.get('/api/users/:email/interactions', verifyToken, async (req, res) => {
       .sort({ createdAt: -1 });
     res.json(ideas);
   } catch (error) {
-    console.error('Error user interactions:', error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: 'Server error parsing map collection' });
   }
 });
 
@@ -320,7 +291,7 @@ async function startServer() {
       if (fs.existsSync(indexPath)) {
         res.sendFile(indexPath);
       } else {
-        res.status(404).json({ error: 'Not Found', message: 'API fallback active.' });
+        res.status(404).json({ error: 'Not Found', message: 'API active.' });
       }
     });
   }
