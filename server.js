@@ -6,15 +6,12 @@ import mongoose from 'mongoose';
 import cors from 'cors';
 import path from 'path';
 import { betterAuth } from "better-auth";
+import { mongodbAdapter } from "better-auth/adapters/mongodb";
 
-const app = PatternExpressEngine();
-function PatternExpressEngine() {
-  const expressApp = express();
-  expressApp.enable('trust proxy');
-  return expressApp;
-}
-
+const app = express();
+app.enable('trust proxy');
 const PORT = process.env.PORT || 3000;
+
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 app.use(cors({
@@ -268,17 +265,14 @@ app.get('/api/users/:email/interactions', verifyToken, async (req, res) => {
 
 async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';
-  const fs = await import('fs');
   
   try {
     await mongoose.connect(MONGODB_URI, { serverSelectionTimeoutMS: 5000 });
     console.log('Connected to MongoDB via Mongoose cleanly');
     
+    // Explicitly seed the active collection driver reference straight into the adapter wrapper
     authInstance = betterAuth({
-      database: {
-        provider: "mongodb",
-        url: MONGODB_URI
-      },
+      database: mongodbAdapter(mongoose.connection.db),
       emailAndPassword: { enabled: true },
       trustedOrigins: [FRONTEND_URL, 'http://localhost:5173'],
       advanced: { useSecureCookies: isProduction }
@@ -290,6 +284,7 @@ async function startServer() {
   }
 
   if (isProduction) {
+    const fs = await import('fs');
     app.use(express.static(path.join(process.cwd(), 'dist')));
     app.get('*', (req, res) => {
       const indexPath = path.join(process.cwd(), 'dist', 'index.html');
