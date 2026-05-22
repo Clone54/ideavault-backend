@@ -295,7 +295,37 @@ app.get('/api/users/:email/interactions', verifyToken, async (req, res) => {
 
 async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';
+  const fs = await import('fs');
   
+  // Custom API fallback for root when dist doesn't exist
+  app.get('/', (req, res, next) => {
+    if (isProduction && !fs.existsSync(path.join(process.cwd(), 'dist', 'index.html'))) {
+      res.send(`
+        <html>
+          <head>
+            <title>IdeaVault API Status</title>
+            <style>
+              body { font-family: system-ui, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background: #f9fafb; margin: 0; color: #111827; }
+              .container { text-align: center; padding: 2rem; background: white; border-radius: 8px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+              h1 { margin-top: 0; }
+              a { color: #2563eb; text-decoration: none; }
+              a:hover { text-decoration: underline; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <h1>IdeaVault Backend API</h1>
+              <p>The backend service is running successfully.</p>
+              <p><a href="/api/health">Check API Health</a></p>
+            </div>
+          </body>
+        </html>
+      `);
+    } else {
+      next();
+    }
+  });
+
   if (!isProduction) {
     try {
       const { createServer: createViteServer } = await import('vite');
@@ -308,12 +338,24 @@ async function startServer() {
     } catch (e) {
       console.warn('Vite not found, falling back to static dist folder.', e.message);
       app.use(express.static(path.join(process.cwd(), 'dist')));
-      app.get('*', (req, res) => res.sendFile(path.join(process.cwd(), 'dist', 'index.html')));
+      app.get('*', (req, res) => {
+        const indexPath = path.join(process.cwd(), 'dist', 'index.html');
+        if (fs.existsSync(indexPath)) {
+          res.sendFile(indexPath);
+        } else {
+          res.status(404).json({ error: 'Not Found', message: 'API endpoint does not exist or frontend is not built.' });
+        }
+      });
     }
   } else {
     app.use(express.static(path.join(process.cwd(), 'dist')));
     app.get('*', (req, res) => {
-      res.sendFile(path.join(process.cwd(), 'dist', 'index.html'));
+      const indexPath = path.join(process.cwd(), 'dist', 'index.html');
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.status(404).json({ error: 'Not Found', message: 'API endpoint does not exist or frontend is not built.' });
+      }
     });
   }
 
