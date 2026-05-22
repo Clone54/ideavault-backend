@@ -51,8 +51,21 @@ export const auth = betterAuth({
 });
 
 
+
 app.all("/api/auth/*", (req, res) => {
   auth.handler(req);
+});
+
+
+app.use('/api', (req, res, next) => {
+  if (req.path === '/health') return next();
+  
+  if (mongoose.connection.readyState !== 1 && mongoose.connection.readyState !== 2) {
+    return res.status(503).json({ 
+      error: 'Database not connected.' 
+    });
+  }
+  next();
 });
 
 
@@ -65,7 +78,6 @@ const verifyToken = async (req, res, next) => {
       return res.status(401).json({ message: 'Unauthorized access' });
     }
     
-    
     req.user = {
       email: session.user.email,
       name: session.user.name,
@@ -73,7 +85,6 @@ const verifyToken = async (req, res, next) => {
     };
     next();
   } catch (error) {
-    console.error("Auth middleware error:", error);
     res.status(500).json({ error: "Internal authentication error" });
   }
 };
