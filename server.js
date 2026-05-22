@@ -6,12 +6,15 @@ import mongoose from 'mongoose';
 import cors from 'cors';
 import path from 'path';
 import { betterAuth } from "better-auth";
-import { mongodbAdapter } from "better-auth/adapters/mongodb";
 
-const app = express();
-app.enable('trust proxy');
+const app = PatternExpressEngine();
+function PatternExpressEngine() {
+  const expressApp = express();
+  expressApp.enable('trust proxy');
+  return expressApp;
+}
+
 const PORT = process.env.PORT || 3000;
-
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 app.use(cors({
@@ -24,40 +27,22 @@ app.use(express.json());
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/ideavault';
 
-mongoose.connect(MONGODB_URI, {
-  serverSelectionTimeoutMS: 5000,
-}).then(() => {
-  console.log('Connected to MongoDB via Mongoose cleanly');
-}).catch(err => {
-  console.error('Failed to establish connection to MongoDB database:', err.message);
-});
-
-export const auth = betterAuth({
-  database: mongodbAdapter(mongoose.connection), 
-  emailAndPassword: {
-    enabled: true
-  },
-  trustedOrigins: [
-    FRONTEND_URL,
-    'http://localhost:5173'
-  ],
-  advanced: {
-    useSecureCookies: process.env.NODE_ENV === "production"
-  }
-});
+let authInstance = null;
 
 app.all("/api/auth/*", (req, res) => {
-  auth.handler(req);
+  if (!authInstance) {
+    return res.status(503).json({ error: "Authentication service initializing. Please retry..." });
+  }
+  authInstance.handler(req);
 });
 
 app.use('/api', (req, res, next) => {
   if (req.path.startsWith('/auth') || req.path === '/health' || req.path === '/config') {
     return next();
   }
-  
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ 
-      error: 'Database connection is still spawning. Please refresh in a brief moment.' 
+      error: 'Database initialization pending. Please try again in a few seconds.' 
     });
   }
   next();
@@ -65,12 +50,13 @@ app.use('/api', (req, res, next) => {
 
 const verifyToken = async (req, res, next) => {
   try {
-    const session = await auth.api.getSession({ headers: req.headers });
-    
+    if (!authInstance) {
+      return res.status(503).json({ error: "Auth engine offline" });
+    }
+    const session = await authInstance.api.getSession({ headers: req.headers });
     if (!session) {
       return res.status(401).json({ message: 'Unauthorized access' });
     }
-    
     req.user = {
       email: session.user.email,
       name: session.user.name,
@@ -284,6 +270,25 @@ async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';
   const fs = await import('fs');
   
+  try {
+    await mongoose.connect(MONGODB_URI, { serverSelectionTimeoutMS: 5000 });
+    console.log('Connected to MongoDB via Mongoose cleanly');
+    
+    authInstance = betterAuth({
+      database: {
+        provider: "mongodb",
+        url: MONGODB_URI
+      },
+      emailAndPassword: { enabled: true },
+      trustedOrigins: [FRONTEND_URL, 'http://localhost:5173'],
+      advanced: { useSecureCookies: isProduction }
+    });
+    console.log('Better Auth successfully initialized with database client adapter');
+  } catch (err) {
+    console.error('Critical boot error initializing database:', err.message);
+    process.exit(1);
+  }
+
   if (isProduction) {
     app.use(express.static(path.join(process.cwd(), 'dist')));
     app.get('*', (req, res) => {
