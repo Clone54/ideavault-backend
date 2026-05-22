@@ -7,8 +7,10 @@
     "dev": "node server.js"
   },
   "dependencies": {
+    "@better-auth/infra": "^0.2.8",
     "@google/genai": "^1.29.0",
     "axios": "^1.16.1",
+    "better-auth": "^1.6.11",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",

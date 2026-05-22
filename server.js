@@ -2,51 +2,89 @@ import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import jwt from 'jsonwebtoken';
 import path from 'path';
+import { betterAuth } from "better-auth";
+import { mongodbAdapter } from "@better-auth/mongodb-adapter";
 
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
+
+// Dynamic frontend URL fallback for development vs production
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 app.use(cors({
-  origin: function (origin, callback) {
-    callback(null, true);
-  },
-  credentials: true
+  origin: FRONTEND_URL,
+  credentials: true // Crucial for Better Auth to accept session cookies/headers cross-origin
 }));
 app.use(express.json());
 
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/ideavault';
 
-const MONGODB_URI = process.env.MONGODB_URI;
-
-if (!MONGODB_URI) {
-  console.error("CRITICAL WARNING: MONGODB_URI environment variable is not set!");
-  console.error("Please add your MongoDB connection string in the Secrets panel to use the database.");
-}
-
-mongoose.connect(MONGODB_URI || 'mongodb://127.0.0.1:27017/ideavault', {
+mongoose.connect(MONGODB_URI, {
   serverSelectionTimeoutMS: 5000,
 }).then(() => {
-  console.log('Connected to MongoDB');
+  console.log('Connected to MongoDB via Mongoose');
 }).catch(err => {
-  console.error('Failed to connect to MongoDB. Check your MONGODB_URI secret:', err.message);
+  console.error('Failed to connect to MongoDB:', err.message);
 });
 
+// 1. Initialize Better Auth using your active Mongoose connection instance
+export const auth = betterAuth({
+  database: mongodbAdapter(mongoose.connection.db), 
+  emailAndPassword: {
+    enabled: true
+  },
+  socialProviders: {
+    google: {
+      clientId: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    }
+  }
+});
 
+// 2. Direct all incoming authentication routing to Better Auth's internal API handler
+app.all("/api/auth/*", (req, res) => {
+  auth.handler(req);
+});
+
+// 3. New Better Auth Session Verification Middleware
+const verifyToken = async (req, res, next) => {
+  try {
+    // Better Auth extracts tokens automatically from cookies or headers
+    const session = await auth.api.getSession({ headers: req.headers });
+    
+    if (!session) {
+      return res.status(401).json({ message: 'Unauthorized access' });
+    }
+    
+    // Standardize your custom req.user properties using the active session profile
+    req.user = {
+      email: session.user.email,
+      name: session.user.name,
+      photo: session.user.image
+    };
+    next();
+  } catch (error) {
+    console.error("Auth middleware error:", error);
+    res.status(500).json({ error: "Internal authentication error" });
+  }
+};
+
+// Database connectivity check middleware
 app.use('/api', (req, res, next) => {
-  if (req.path === '/health' || req.path === '/jwt') return next();
+  if (req.path === '/health' || req.path.startsWith('/auth')) return next();
   
   if (mongoose.connection.readyState !== 1 && mongoose.connection.readyState !== 2) {
     return res.status(503).json({ 
-      error: 'Database not connected. Please provide a valid MONGODB_URI in the Secrets panel.' 
+      error: 'Database not connected. Please provide a valid MONGODB_URI.' 
     });
   }
   next();
 });
 
-
+// --- Mongoose Schemas ---
 const CommentSchema = new mongoose.Schema({
   userId: { type: String, required: true },
   userName: { type: String, required: true },
@@ -77,46 +115,17 @@ const IdeaSchema = new mongoose.Schema({
 
 const Idea = mongoose.model('Idea', IdeaSchema);
 
-
-const verifyToken = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ message: 'Unauthorized access' });
-  }
-  const token = authHeader.split(' ')[1];
-  const secret = process.env.JWT_SECRET || 'fallback_secret_key';
-  
-  jwt.verify(token, secret, (err, decoded) => {
-    if (err) {
-      return res.status(401).json({ message: 'Unauthorized access' });
-    }
-    req.user = decoded;
-    next();
-  });
-};
-
-
-
-
+// --- REST API Endpoints ---
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'IdeaVault API is running.' });
+  res.json({ status: 'ok', message: 'IdeaVault API is running with Better Auth.' });
 });
 
 app.get('/api/config', (req, res) => {
   res.json({
     hasExternalDb: !!process.env.MONGODB_URI,
-    message: process.env.MONGODB_URI ? 'Connected to External DB.' : 'Warning: Using ephemeral local memory database. Data will be lost on container restart.'
+    message: process.env.MONGODB_URI ? 'Connected to External DB.' : 'Warning: Using local fallback database.'
   });
 });
-
-
-app.post('/api/jwt', (req, res) => {
-  const user = req.body;
-  if (!user || !user.email) return res.status(400).json({ error: 'Missing user data' });
-  const token = jwt.sign(user, process.env.JWT_SECRET || 'fallback_secret_key', { expiresIn: '1d' });
-  res.json({ token });
-});
-
 
 app.get('/api/ideas', async (req, res) => {
   const { search, category, limit } = req.query;
@@ -163,7 +172,6 @@ app.get('/api/ideas/:id', async (req, res) => {
   }
 });
 
-
 app.post('/api/ideas', verifyToken, async (req, res) => {
   try {
     const newIdea = new Idea({
@@ -172,9 +180,7 @@ app.post('/api/ideas', verifyToken, async (req, res) => {
       creatorName: req.user.name || 'Anonymous',
       creatorPhoto: req.user.photo || ''
     });
-    console.log("Saving new idea:", newIdea.title, "by", newIdea.creatorEmail);
     await newIdea.save();
-    console.log("Successfully saved new idea. ID:", newIdea._id);
     res.status(201).json(newIdea);
   } catch (error) {
     console.error('Error adding idea:', error);
@@ -209,7 +215,6 @@ app.delete('/api/ideas/:id', verifyToken, async (req, res) => {
   }
 });
 
-
 app.post('/api/ideas/:id/comments', verifyToken, async (req, res) => {
   try {
     const idea = await Idea.findById(req.params.id);
@@ -217,8 +222,8 @@ app.post('/api/ideas/:id/comments', verifyToken, async (req, res) => {
     
     const comment = {
       userId: req.user.email,
-      userName: req.body.userName,
-      userPhoto: req.body.userPhoto,
+      userName: req.user.name || 'Anonymous',
+      userPhoto: req.user.photo || '',
       text: req.body.text,
       createdAt: new Date()
     };
@@ -266,7 +271,6 @@ app.delete('/api/ideas/:postId/comments/:commentId', verifyToken, async (req, re
   }
 });
 
-
 app.get('/api/users/:email/ideas', verifyToken, async (req, res) => {
   if (req.params.email !== req.user.email) return res.status(403).json({ error: 'Forbidden' });
   try {
@@ -291,76 +295,25 @@ app.get('/api/users/:email/interactions', verifyToken, async (req, res) => {
   }
 });
 
-
-
 async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';
   const fs = await import('fs');
   
-  // Custom API fallback for root when dist doesn't exist
-  app.get('/', (req, res, next) => {
-    if (isProduction && !fs.existsSync(path.join(process.cwd(), 'dist', 'index.html'))) {
-      res.send(`
-        <html>
-          <head>
-            <title>IdeaVault API Status</title>
-            <style>
-              body { font-family: system-ui, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background: #f9fafb; margin: 0; color: #111827; }
-              .container { text-align: center; padding: 2rem; background: white; border-radius: 8px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
-              h1 { margin-top: 0; }
-              a { color: #2563eb; text-decoration: none; }
-              a:hover { text-decoration: underline; }
-            </style>
-          </head>
-          <body>
-            <div class="container">
-              <h1>IdeaVault Backend API</h1>
-              <p>The backend service is running successfully.</p>
-              <p><a href="/api/health">Check API Health</a></p>
-            </div>
-          </body>
-        </html>
-      `);
-    } else {
-      next();
-    }
-  });
-
-  if (!isProduction) {
-    try {
-      const { createServer: createViteServer } = await import('vite');
-      const vite = await createViteServer({
-        server: { middlewareMode: true },
-        appType: 'spa',
-      });
-      app.use(vite.middlewares);
-      console.log('Vite middleware enabled');
-    } catch (e) {
-      console.warn('Vite not found, falling back to static dist folder.', e.message);
-      app.use(express.static(path.join(process.cwd(), 'dist')));
-      app.get('*', (req, res) => {
-        const indexPath = path.join(process.cwd(), 'dist', 'index.html');
-        if (fs.existsSync(indexPath)) {
-          res.sendFile(indexPath);
-        } else {
-          res.status(404).json({ error: 'Not Found', message: 'API endpoint does not exist or frontend is not built.' });
-        }
-      });
-    }
-  } else {
+  // Static deployment serving structure
+  if (isProduction) {
     app.use(express.static(path.join(process.cwd(), 'dist')));
     app.get('*', (req, res) => {
       const indexPath = path.join(process.cwd(), 'dist', 'index.html');
       if (fs.existsSync(indexPath)) {
         res.sendFile(indexPath);
       } else {
-        res.status(404).json({ error: 'Not Found', message: 'API endpoint does not exist or frontend is not built.' });
+        res.status(404).json({ error: 'Not Found', message: 'API fallback active.' });
       }
     });
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
+    console.log(`Server running on port ${PORT}`);
   });
 }
 
