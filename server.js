@@ -9,60 +9,65 @@ import { mongodbAdapter } from "better-auth/adapters/mongodb";
 dotenv.config();
 
 const app = express();
-app.enable('trust proxy');
+app.enable('trust proxy'); 
 const PORT = process.env.PORT || 3000;
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 app.use(cors({
   origin: FRONTEND_URL, 
-  credentials: true,
+  credentials: true, 
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Cookie']
 }));
+app.use(express.json());
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/ideavault';
+
+
+let authInstance = null;
 
 mongoose.connect(MONGODB_URI, {
   serverSelectionTimeoutMS: 5000,
 }).then(() => {
   console.log('Connected to MongoDB via Mongoose');
+  
+  
+  authInstance = betterAuth({
+    database: mongodbAdapter(mongoose.connection.db), 
+    emailAndPassword: {
+      enabled: true
+    },
+    trustedOrigins: [
+      FRONTEND_URL,
+      'http://localhost:5173'
+    ],
+    advanced: {
+      useSecureCookies: process.env.NODE_ENV === "production"
+    }
+  });
 }).catch(err => {
   console.error('Failed to connect to MongoDB:', err.message);
 });
 
 
-export const auth = betterAuth({
-  database: mongodbAdapter(mongoose.connection.db), 
-  emailAndPassword: {
-    enabled: true
-  },
-  
-  advanced: {
-    useSecureCookies: process.env.NODE_ENV === "production", 
-    crossSubdomainCookie: true 
-  },
-  socialProviders: {
-    google: {
-      clientId: process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    }
-  }
-});
-
-
-
 app.all("/api/auth/*", (req, res) => {
-  auth.handler(req);
+  if (!authInstance) {
+    return res.status(503).json({ error: "Authentication system is initializing, please try again..." });
+  }
+  authInstance.handler(req);
 });
 
 
 app.use('/api', (req, res, next) => {
-  if (req.path === '/health') return next();
   
-  if (mongoose.connection.readyState !== 1 && mongoose.connection.readyState !== 2) {
+  if (req.path.startsWith('/auth') || req.path === '/health') {
+    return next();
+  }
+  
+  if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ 
-      error: 'Database not connected.' 
+      error: 'Database not connected. System initialization is currently pending.' 
     });
   }
   next();
@@ -71,13 +76,18 @@ app.use('/api', (req, res, next) => {
 
 const verifyToken = async (req, res, next) => {
   try {
+    if (!authInstance) {
+      return res.status(503).json({ error: "Authentication engine is currently offline." });
+    }
+
     
-    const session = await auth.api.getSession({ headers: req.headers });
+    const session = await authInstance.api.getSession({ headers: req.headers });
     
     if (!session) {
       return res.status(401).json({ message: 'Unauthorized access' });
     }
     
+   
     req.user = {
       email: session.user.email,
       name: session.user.name,
@@ -85,22 +95,10 @@ const verifyToken = async (req, res, next) => {
     };
     next();
   } catch (error) {
+    console.error("Auth token runtime error:", error);
     res.status(500).json({ error: "Internal authentication error" });
   }
 };
-
-
-app.use('/api', (req, res, next) => {
-  if (req.path === '/health' || req.path.startsWith('/auth')) return next();
-  
-  if (mongoose.connection.readyState !== 1 && mongoose.connection.readyState !== 2) {
-    return res.status(503).json({ 
-      error: 'Database not connected. Please provide a valid MONGODB_URI.' 
-    });
-  }
-  next();
-});
-
 
 const CommentSchema = new mongoose.Schema({
   userId: { type: String, required: true },
@@ -131,7 +129,6 @@ const IdeaSchema = new mongoose.Schema({
 });
 
 const Idea = mongoose.model('Idea', IdeaSchema);
-
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'IdeaVault API is running with Better Auth.' });
@@ -316,7 +313,6 @@ async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';
   const fs = await import('fs');
   
-  
   if (isProduction) {
     app.use(express.static(path.join(process.cwd(), 'dist')));
     app.get('*', (req, res) => {
@@ -330,7 +326,7 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`Server running securely on port ${PORT}`);
   });
 }
 
