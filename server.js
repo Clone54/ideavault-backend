@@ -52,11 +52,13 @@ app.all('/api/auth/*', async (req, res) => {
     }
 
     return await auth.handler(req, res);
+
   } catch (error) {
-    console.error('Better Auth Error:', error);
+    console.error('BETTER AUTH CRASH:', error);
 
     return res.status(500).json({
-      error: 'Authentication handler crashed'
+      error: error.message,
+      stack: error.stack
     });
   }
 });
@@ -596,6 +598,11 @@ async function startServer() {
 
       baseURL: process.env.BETTER_AUTH_URL,
 
+      trustedOrigins: [
+        "https://ideavault-frontend-1.onrender.com",
+        "http://localhost:5173"
+      ],
+
       emailAndPassword: {
         enabled: true
       },
@@ -607,12 +614,12 @@ async function startServer() {
         }
       },
 
-      trustedOrigins: [
-        "https://ideavault-frontend-1.onrender.com",
-        "http://localhost:5173"
-      ],
-
       advanced: {
+        defaultCookieAttributes: {
+          sameSite: "none",
+          secure: true
+        },
+
         useSecureCookies: true
       }
     });
