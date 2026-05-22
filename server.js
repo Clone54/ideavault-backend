@@ -590,9 +590,11 @@ async function startServer() {
     console.log('MongoDB connected');
 
     auth = betterAuth({
-      database: mongodbAdapter(
-        mongoose.connection.db
-      ),
+      database: mongodbAdapter(mongoose.connection.db),
+
+      secret: process.env.BETTER_AUTH_SECRET,
+
+      baseURL: process.env.BETTER_AUTH_URL,
 
       emailAndPassword: {
         enabled: true
@@ -600,21 +602,18 @@ async function startServer() {
 
       socialProviders: {
         google: {
-          clientId:
-            process.env.GOOGLE_CLIENT_ID,
-          clientSecret:
-            process.env.GOOGLE_CLIENT_SECRET
+          clientId: process.env.GOOGLE_CLIENT_ID,
+          clientSecret: process.env.GOOGLE_CLIENT_SECRET
         }
       },
 
       trustedOrigins: [
-        FRONTEND_URL,
-        'http://localhost:5173',
-        'https://ideavault-frontend-1.onrender.com'
+        "https://ideavault-frontend-1.onrender.com",
+        "http://localhost:5173"
       ],
 
       advanced: {
-        useSecureCookies: isProduction
+        useSecureCookies: true
       }
     });
 
