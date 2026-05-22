@@ -1,12 +1,11 @@
+import dotenv from 'dotenv';
+dotenv.config(); // Move this to the absolute top line of the file
+
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import path from 'path';
 import { betterAuth } from "better-auth";
-import { mongodbAdapter } from "better-auth/adapters/mongodb";
-
-dotenv.config();
 
 const app = express();
 app.enable('trust proxy');
