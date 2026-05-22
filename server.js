@@ -9,15 +9,17 @@ import { mongodbAdapter } from "better-auth/adapters/mongodb";
 dotenv.config();
 
 const app = express();
+app.enable('trust proxy');
 const PORT = process.env.PORT || 3000;
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 app.use(cors({
-  origin: FRONTEND_URL,
-  credentials: true 
+  origin: FRONTEND_URL, 
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie']
 }));
-app.use(express.json());
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/ideavault';
 
@@ -34,6 +36,11 @@ export const auth = betterAuth({
   database: mongodbAdapter(mongoose.connection.db), 
   emailAndPassword: {
     enabled: true
+  },
+  
+  advanced: {
+    useSecureCookies: process.env.NODE_ENV === "production", 
+    crossSubdomainCookie: true 
   },
   socialProviders: {
     google: {
