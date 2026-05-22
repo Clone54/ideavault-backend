@@ -4,7 +4,6 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
 import path from 'path';
-import { createServer as createViteServer } from 'vite';
 
 dotenv.config();
 
@@ -12,7 +11,9 @@ const app = express();
 const PORT = 3000;
 
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:3000', process.env.APP_URL || '*'],
+  origin: function (origin, callback) {
+    callback(null, true);
+  },
   credentials: true
 }));
 app.use(express.json());
@@ -293,14 +294,23 @@ app.get('/api/users/:email/interactions', verifyToken, async (req, res) => {
 
 
 async function startServer() {
-  if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
+  const isProduction = process.env.NODE_ENV === 'production';
+  
+  if (!isProduction) {
+    try {
+      const { createServer: createViteServer } = await import('vite');
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+      console.log('Vite middleware enabled');
+    } catch (e) {
+      console.warn('Vite not found, falling back to static dist folder.', e.message);
+      app.use(express.static(path.join(process.cwd(), 'dist')));
+      app.get('*', (req, res) => res.sendFile(path.join(process.cwd(), 'dist', 'index.html')));
+    }
   } else {
-
     app.use(express.static(path.join(process.cwd(), 'dist')));
     app.get('*', (req, res) => {
       res.sendFile(path.join(process.cwd(), 'dist', 'index.html'));
@@ -308,7 +318,7 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Server running on http://0.0.0.0:${PORT}`);
   });
 }
 
