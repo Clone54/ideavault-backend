@@ -33,7 +33,10 @@ mongoose.connect(MONGODB_URI, {
 });
 
 export const auth = betterAuth({
-  database: mongodbAdapter(() => mongoose.connection.db), 
+  database: {
+    provider: "mongodb",
+    url: MONGODB_URI
+  },
   emailAndPassword: {
     enabled: true
   },
