@@ -5,7 +5,7 @@
   "license": "MIT",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node --watch server.js"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
@@ -14,7 +14,6 @@
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
-    "firebase": "^12.13.0",
     "firebase-admin": "^13.10.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.6.2"
