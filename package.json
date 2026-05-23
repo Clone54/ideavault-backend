@@ -8,16 +8,15 @@
     "dev": "node server.js"
   },
   "dependencies": {
-    "@better-auth/infra": "^0.2.8",
     "@google/genai": "^1.29.0",
     "axios": "^1.16.1",
-    "better-auth": "^1.6.11",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
+    "firebase": "^12.13.0",
+    "firebase-admin": "^13.10.0",
     "jsonwebtoken": "^9.0.3",
-    "mongodb": "^7.2.0",
     "mongoose": "^9.6.2"
   },
   "devDependencies": {
